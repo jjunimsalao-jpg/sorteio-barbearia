@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111">
+<title>Sorteio da Barbearia</title>
+<style>
+:root{--bg:#111;--c:#1c1c1c;--l:#2c2c2c;--g:#d4af37;--t:#fff;--m:#a8a8a8;--ok:#2ecc71;--pe:#f1c40f;--no:#e74c3c}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--t);font:17px/1.4 system-ui,sans-serif;padding-bottom:90px}
+h1,h2,h3{font-family:Georgia,serif;margin:0 0 8px}
+h1{font-size:26px;color:var(--g)}
+#app{max-width:640px;margin:auto;padding:14px}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.top h1{flex:1;margin:0}
+.card{background:var(--c);border:1px solid var(--l);border-radius:12px;padding:14px;margin-bottom:12px}
+.btn{display:block;width:100%;min-height:54px;border:0;border-radius:10px;background:var(--g);color:#111;font:700 17px system-ui;margin:8px 0;padding:12px;cursor:pointer;text-align:center;text-decoration:none}
+.btn.alt{background:transparent;color:var(--g);border:2px solid var(--g)}
+.btn.sm{display:inline-block;width:auto;min-height:40px;margin:0;padding:8px 14px;font-size:15px}
+.btn.red{background:var(--no);color:#fff}
+.btn.wa{background:#25d366;color:#111}
+.btn:disabled{opacity:.4}
+label{display:block;margin:12px 0 4px;color:var(--g);font-weight:600}
+input,select,textarea{width:100%;min-height:50px;background:#000;color:#fff;border:1px solid #444;border-radius:10px;padding:10px 12px;font:17px system-ui}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--g)}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.m{color:var(--m);font-size:15px}
+.big{font-size:22px;font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:6px}
+.n{min-height:48px;border-radius:8px;border:1px solid #444;background:#000;color:#fff;font:700 17px system-ui;cursor:pointer;padding:0}
+.n.s{background:var(--g);color:#111;border-color:var(--g)}
+.n.o{background:#2a2a2a;color:#777;font-size:12px;border-style:dashed}
+.n.o.pago{border-color:var(--ok)}.n.o.pendente{border-color:var(--pe)}
+.chip{display:inline-block;background:#000;border:1px solid var(--g);color:var(--g);border-radius:6px;padding:2px 8px;margin:2px;font-weight:700}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#000;border-top:2px solid var(--g);padding:10px 14px;z-index:5}
+.bar>div{max-width:640px;margin:auto}
+.bar .btn{margin:0}
+.tag{font-weight:700}.pendente{color:var(--pe)}.pago{color:var(--ok)}.cancelado{color:var(--no)}
+.mod{position:fixed;inset:0;background:#000c;z-index:9;display:flex;align-items:flex-end;justify-content:center}
+.mod>div{background:var(--c);border-top:3px solid var(--g);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:640px;max-height:90vh;overflow:auto}
+.toast{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--g);color:#111;padding:12px 18px;border-radius:10px;font-weight:700;z-index:20;max-width:90%;text-align:center}
+.win{text-align:center;border:2px solid var(--g)}
+.pg{display:flex;gap:6px;overflow:auto;margin-bottom:10px}
+.pg button{flex:0 0 auto}
+a{color:var(--g)}
+</style></head><body><div id="app"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const FB={apiKey:"AIzaSyAmZxyTKA9-eNtkiwqWEr8sBIsDAbzFMkc",authDomain:"sorteio-barbearia.firebaseapp.com",projectId:"sorteio-barbearia",appId:"1:92874511816:web:09a529cc0a200c92089cfd"};
+const T={dezena:[2,100],centena:[3,1000],milhar:[4,10000]};
+const $=s=>document.querySelector(s),app=$('#app');
+const SID=new URLSearchParams(location.search).get('s');
+const BASE=location.origin+location.pathname;
+let db,auth,user=null,list=[],curId=SID,nums={},parts={},view='home',sel=new Set(),page=0,q='',uN,uP,lid=null;
+const S=()=>list.find(x=>x.id===curId);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad=(n,s)=>String(n).padStart(T[s.tipo][0],'0');
+const money=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const dt=d=>d?d.split('-').reverse().join('/'):'-';
+const dg=s=>String(s||'').replace(/\D/g,'');
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+const ST={pendente:'🟡 Pendente',pago:'🟢 Pago',cancelado:'🔴 Cancelado'};
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.append(e);setTimeout(()=>e.remove(),3200)}
+function modal(h){closeM();const e=document.createElement('div');e.className='mod';e.id='mod';e.innerHTML='<div>'+h+'</div>';e.onclick=ev=>{if(ev.target===e)closeM()};document.body.append(e)}
+function closeM(){const e=$('#mod');if(e)e.remove()}
+function nav(v,id){closeM();if(id)curId=id;view=v;sel=new Set();page=0;q='';sync();render();scrollTo(0,0)}
+function hd(t,back){return `<div class="top">${back?`<button class="btn alt sm" onclick="nav('${back}')">⬅</button>`:''}<h1>${t}</h1>${user&&!SID?'<button class="btn alt sm" onclick="auth.signOut()">Sair</button>':''}</div>`}
+function link(){return BASE+'?s='+curId}
+function full(s){return Object.keys(nums).length>=Number(s.qtd)}
+
+function boot(){
+  firebase.initializeApp(FB);db=firebase.firestore();auth=firebase.auth();
+  db.collection('sorteios').orderBy('criado','desc').onSnapshot(s=>{list=s.docs.map(d=>({id:d.id,...d.data()}));sync();render()},e=>toast('Erro ao carregar: '+e.code));
+  auth.onAuthStateChanged(u=>{user=u;sync(true);render()});
+}
+function sync(force){
+  const key=curId+'|'+!!user;if(key===lid&&!force)return;lid=key;
+  uN&&uN();uP&&uP();nums={};parts={};if(!curId)return;
+  const r=db.collection('sorteios').doc(curId);
+  uN=r.collection('numeros').onSnapshot(s=>{nums={};s.docs.forEach(d=>nums[d.id]=d.data());const lost=[...sel].filter(n=>nums[n]);if(lost.length){lost.forEach(n=>sel.delete(n));toast('O número '+lost.join(', ')+' acabou de ser escolhido. Escolha outro número.')}render()});
+  if(user)uP=r.collection('participantes').onSnapshot(s=>{parts={};s.docs.forEach(d=>parts[d.id]=d.data());render()},()=>{});
+}
+async function reg(nome,tel,arr){
+  const s=S();
+  if(s.status!=='ativo'&&!user)return toast('Este sorteio não está recebendo participações.');
+  if(Object.keys(nums).length+arr.length>Number(s.qtd))return toast('Não há vagas suficientes. Escolha menos números.');
+  const r=db.collection('sorteios').doc(s.id),pid=db.collection('x').doc().id;
+  try{await db.runTransaction(async tx=>{
+    const sn=await Promise.all(arr.map(n=>tx.get(r.collection('numeros').doc(n))));
+    if(sn.some(x=>x.exists))throw'ocupado';
+    tx.set(r.collection('participantes').doc(pid),{nome,tel,nums:arr,status:'pendente',ts:Date.now()});
+    arr.forEach(n=>tx.set(r.collection('numeros').doc(n),{pid}));
+  });return true}catch(e){
+    sel=new Set([...sel].filter(n=>!nums[n]));render();
+    toast(e==='ocupado'?'Esse número acabou de ser escolhido. Escolha outro número.':'Não foi possível salvar. Tente de novo.');return false}
+}
+
+function gridHTML(){
+  const s=S(),tot=T[s.tipo][1],pg=Math.ceil(tot/100);let h='';
+  if(pg>1){h+='<div class="pg">';for(let i=0;i<pg;i++)h+=`<button class="btn sm ${i===page?'':'alt'}" onclick="page=${i};render()">${pad(i*100,s)}–${pad(i*100+99,s)}</button>`;h+='</div><div class="row" style="margin-bottom:10px"><input id="go" inputmode="numeric" placeholder="Ir para o número"><button class="btn sm" onclick="goN()">Ir</button></div>'}
+  h+='<div class="grid">';
+  for(let i=page*100;i<Math.min(tot,page*100+100);i++){
+    const n=pad(i,s),o=nums[n],pt=o&&parts[o.pid];
+    h+=o?`<button class="n o ${pt?pt.status:''}" onclick="occ('${n}')">🔒<br>${n}</button>`:`<button class="n ${sel.has(n)?'s':''}" onclick="tog('${n}')">${n}</button>`;
+  }
+  return h+'</div>';
+}
+function goN(){const s=S(),v=dg($('#go').value);if(!v)return;const i=Number(v);if(i>=T[s.tipo][1])return toast('Número fora do sorteio.');page=Math.floor(i/100);render()}
+function tog(n){const s=S();if(sel.has(n))sel.delete(n);else{if(full(s)||Object.keys(nums).length+sel.size>=Number(s.qtd))return toast('Não há mais vagas.');sel.add(n)}render()}
+function occ(n){
+  if(!user)return toast('🔒 Número ocupado. Escolha outro.');
+  const o=nums[n],p=o&&parts[o.pid];if(!p)return;
+  modal(`<h2>Número ${n}</h2><p class="big">${esc(p.nome)}</p><p><a href="tel:${dg(p.tel)}">${esc(p.tel)}</a></p><p>Todos os números: ${p.nums.map(x=>`<span class="chip">${x}</span>`).join('')}</p>
+  <p class="tag ${p.status}">${ST[p.status]}</p>${statusBtns(o.pid)}<button class="btn alt" onclick="closeM()">FECHAR</button>`);
+}
+function statusBtns(pid){return `<div class="row">${Object.keys(ST).map(k=>`<button class="btn sm alt" onclick="setSt('${pid}','${k}')">${ST[k]}</button>`).join('')}</div>`}
+async function setSt(pid,st){await db.collection('sorteios').doc(curId).collection('participantes').doc(pid).update({status:st});closeM();toast('Status alterado.')}
+function bar(label){const k=[...sel].sort();return k.length?`<div class="bar"><div><div class="m" style="margin-bottom:6px">${k.length} número(s): ${k.join(' • ')}</div><button class="btn" onclick="askData()">${label}</button></div></div>`:''}
+function askData(){
+  const adm=!!user&&!SID;
+  modal(`<h2>${adm?'Cadastrar cliente':'Confirmar participação'}</h2><p>${[...sel].sort().map(x=>`<span class="chip">${x}</span>`).join('')}</p>
+  <label>Nome ou apelido</label><input id="nm" autocomplete="name"><label>Telefone / WhatsApp</label><input id="tl" type="tel" inputmode="tel" placeholder="(31) 99999-9999" autocomplete="tel">
+  <button class="btn" id="ok" onclick="save()">${adm?'CADASTRAR PARTICIPAÇÃO':'CONFIRMAR PARTICIPAÇÃO'}</button><button class="btn alt" onclick="closeM()">VOLTAR</button>`);
+}
+async function save(){
+  const nome=$('#nm').value.trim(),tel=$('#tl').value.trim();
+  if(!nome)return toast('Digite seu nome ou apelido.');
+  if(dg(tel).length<10)return toast('Digite um telefone com DDD.');
+  $('#ok').disabled=true;const arr=[...sel].sort();
+  if(await reg(nome,tel,arr)){closeM();sel=new Set();
+    if(SID)app.innerHTML=hd('Tudo certo! ✅')+`<div class="card win"><p>Participação registrada para <b>${esc(nome)}</b>:</p><p>${arr.map(x=>`<span class="chip">${x}</span>`).join('')}</p><p class="m">Combine o pagamento com a barbearia.</p><button class="btn" onclick="render()">ESCOLHER MAIS NÚMEROS</button></div>`;
+    else{toast('Cadastrado!');render()}
+  }else{const b=$('#ok');if(b)b.disabled=false}
+}
+
+function render(){
+  if(!db)return;
+  if(SID)return clientView();
+  if(!user)return loginView();
+  const s=S();
+  if(view!=='home'&&view!=='novo'&&view!=='hist'&&!s)view='home';
+  ({home,novo,painel,cfg,nums_:numsView,cad,parts_:partsView,sortear,hist}[view==='nums'?'nums_':view==='parts'?'parts_':view]||home)();
+}
+const ADM='admin@sorteio.app',SUF='Barbearia';
+function loginView(){
+  app.innerHTML=hd('Área do Administrador')+`<div class="card"><label>Senha de 4 dígitos</label><input id="pw" type="password" inputmode="numeric" maxlength="4" autocomplete="off" style="font-size:30px;text-align:center;letter-spacing:10px" onkeyup="if(event.key==='Enter')login()"><button class="btn" onclick="login()">ENTRAR</button></div>`;
+}
+function login(){const p=$('#pw').value.trim();if(p.length!==4)return toast('Digite a senha de 4 dígitos.');auth.signInWithEmailAndPassword(ADM,p+SUF).catch(()=>toast('Senha incorreta.'))}
+function card(s){return `<div class="card"><h3>${s.status==='ativo'?'SORTEIO ATIVO':s.status==='pausado'?'SORTEIO PAUSADO':'SORTEIO ENCERRADO'}</h3><p class="big">${esc(s.nome)}</p>
+<p class="m">${cap(s.tipo)} • ${dt(s.data)} • ${money(s.valor)} por número</p><p>🏆 ${esc(s.premio)}</p></div>`}
+function home(){
+  app.innerHTML=hd('Sorteio da Barbearia')+`<button class="btn" onclick="nav('novo')">+ NOVO SORTEIO</button><button class="btn alt" onclick="nav('hist')">📋 HISTÓRICO DE SORTEIOS</button><div style="height:10px"></div>`+
+  (list.length?list.map(s=>card(s).replace(/<\/div>$/,`<button class="btn" onclick="nav('painel','${s.id}')">ABRIR</button></div>`)).join(''):'<p class="m">Nenhum sorteio ainda. Toque em + NOVO SORTEIO.</p>');
+}
+function painel(){
+  const s=S(),n=Object.keys(nums).length;
+  app.innerHTML=hd('Painel','home')+card(s)+`<div class="card"><p class="big">${n} de ${s.qtd} participações preenchidas</p>${n>=Number(s.qtd)?'<p class="tag pago">SORTEIO COMPLETO</p>':''}${s.resultado?`<p>🎯 Resultado: <b>${esc(s.resultado)}</b> — ${s.ganhador?esc(s.ganhador.nome):'sem ganhador'}</p>`:''}</div>
+  <button class="btn" onclick="nav('cad')">🟢 CADASTRAR CLIENTE</button><button class="btn" onclick="nav('nums')">🔢 VER NÚMEROS</button><button class="btn" onclick="nav('parts')">📋 VER PARTICIPANTES</button><button class="btn" onclick="nav('sortear')">🎯 REALIZAR SORTEIO</button>
+  <button class="btn" onclick="share()">📲 COMPARTILHAR LINK</button><button class="btn alt" onclick="nav('cfg')">⚙️ CONFIGURAR SORTEIO</button>`;
+}
+function form(s,cfgMode){
+  s=s||{tipo:'dezena',qtd:100,status:'ativo'};
+  const lock=cfgMode&&Object.keys(nums).length>0;
+  app.innerHTML=hd(cfgMode?'Configurar sorteio':'Novo sorteio',cfgMode?'painel':'home')+`<div class="card">
+  <label>Nome do sorteio</label><input id="f_nome" value="${esc(s.nome)}"><label>Data do sorteio</label><input id="f_data" type="date" value="${esc(s.data)}">
+  <label>Tipo de sorteio</label><select id="f_tipo" ${lock?'disabled':''} onchange="tipoCh()"><option value="dezena">Dezena (00 a 99)</option><option value="centena">Centena (000 a 999)</option><option value="milhar">Milhar (0000 a 9999)</option></select>
+  ${lock?'<p class="m">O tipo não pode mudar depois que já existem participantes.</p>':''}
+  <label>Quantidade de números disponíveis</label><input id="f_qtd" type="number" inputmode="numeric" value="${s.qtd}"><p class="m" id="f_max"></p>
+  <label>Valor por número (R$)</label><input id="f_valor" type="number" inputmode="decimal" step="0.01" value="${s.valor??''}">
+  <label>Nome do prêmio</label><input id="f_premio" value="${esc(s.premio)}"><label>Descrição / observações</label><textarea id="f_obs" rows="3">${esc(s.obs)}</textarea>
+  ${cfgMode?`<label>Status do sorteio</label><select id="f_status"><option value="ativo">🟢 Ativo (recebendo números)</option><option value="pausado">⏸️ Pausado</option><option value="encerrado">🏁 Encerrado</option></select>`:''}
+  <button class="btn" onclick="saveS(${cfgMode})">${cfgMode?'SALVAR ALTERAÇÕES':'CRIAR SORTEIO'}</button><button class="btn alt" onclick="nav('${cfgMode?'painel':'home'}')">CANCELAR</button></div>`;
+  $('#f_tipo').value=s.tipo;if(cfgMode)$('#f_status').value=s.status;tipoCh(true);
+}
+function tipoCh(keep){const t=$('#f_tipo').value,m=T[t][1];$('#f_max').textContent='Máximo para '+t+': '+m;if(!keep||Number($('#f_qtd').value)>m)$('#f_qtd').value=m}
+const novo=()=>form(null,false),cfg=()=>form(S(),true);
+async function saveS(c){
+  const d={nome:$('#f_nome').value.trim(),data:$('#f_data').value,tipo:$('#f_tipo').value,qtd:Number($('#f_qtd').value),valor:Number($('#f_valor').value),premio:$('#f_premio').value.trim(),obs:$('#f_obs').value.trim()};
+  if(!d.nome||!d.data||!d.premio)return toast('Preencha nome, data e prêmio.');
+  if(!(d.qtd>=1)||d.qtd>T[d.tipo][1])return toast('Quantidade inválida para '+d.tipo+'.');
+  if(c){d.status=$('#f_status').value;await db.collection('sorteios').doc(curId).update(d);toast('Alterações salvas.');nav('painel')}
+  else{d.status='ativo';d.criado=Date.now();const r=await db.collection('sorteios').add(d);toast('Sorteio criado!');nav('painel',r.id)}
+}
+function numsView(){app.innerHTML=hd('🔢 Números do sorteio','painel')+`<p class="m">🟡 pendente • 🟢 pago — toque em um número ocupado para ver o dono.</p>`+gridHTML()+bar('CADASTRAR CLIENTE')}
+function cad(){app.innerHTML=hd('Cadastrar cliente','painel')+'<p class="m">Toque nos números e depois em continuar.</p>'+gridHTML()+bar('CONTINUAR')}
+function partsView(){
+  app.innerHTML=hd('📋 Participantes','painel')+`<input id="q" placeholder="🔎 Pesquisar nome, telefone ou número" value="${esc(q)}" oninput="q=this.value;fill()" style="margin-bottom:12px"><div id="pl"></div>`;fill();
+}
+function fill(){
+  const s=q.trim().toLowerCase(),d=dg(s);
+  const l=Object.entries(parts).map(([id,p])=>({id,...p})).filter(p=>!s||(p.nome+' '+p.tel+' '+p.nums.join(' ')).toLowerCase().includes(s)||(d&&dg(p.tel).includes(d))).sort((a,b)=>a.ts-b.ts);
+  $('#pl').innerHTML=l.length?l.map(p=>`<div class="card"><p class="big">${esc(p.nome)}</p><p><a href="https://wa.me/55${dg(p.tel)}" target="_blank">${esc(p.tel)}</a></p><p>${p.nums.map(x=>`<span class="chip">${x}</span>`).join('')}</p>
+  <p>${money(p.nums.length*Number(S().valor))}</p><select onchange="setSt('${p.id}',this.value)">${Object.keys(ST).map(k=>`<option value="${k}" ${k===p.status?'selected':''}>${ST[k]}</option>`).join('')}</select>
+  <button class="btn sm red" style="margin-top:8px" onclick="del('${p.id}')">Excluir e liberar números</button></div>`).join(''):'<p class="m">Nenhum participante encontrado.</p>';
+}
+async function del(pid){
+  const p=parts[pid];if(!confirm('Excluir '+p.nome+' e liberar os números '+p.nums.join(', ')+'?'))return;
+  const r=db.collection('sorteios').doc(curId),b=db.batch();b.delete(r.collection('participantes').doc(pid));p.nums.forEach(n=>b.delete(r.collection('numeros').doc(n)));await b.commit();toast('Excluído.');
+}
+function sortear(){
+  const s=S(),L=T[s.tipo][0];
+  app.innerHTML=hd('🎯 Realizar sorteio','painel')+`<div class="card"><p>Tipo: <b>${cap(s.tipo)}</b></p><label>Digite o resultado oficial (${L} dígitos)</label><input id="res" inputmode="numeric" maxlength="${L}" placeholder="${'0'.repeat(L-1)}7" style="font-size:28px;text-align:center">
+  <button class="btn" onclick="conf()">CONFIRMAR RESULTADO</button></div>`+(s.resultado?`<div class="card"><p class="m">Resultado já registrado:</p><p class="big">${esc(s.resultado)} — ${s.ganhador?esc(s.ganhador.nome):'sem ganhador'}</p></div>`:'');
+}
+async function conf(){
+  const s=S(),L=T[s.tipo][0],v=dg($('#res').value);
+  if(v.length!==L)return toast('Digite '+L+' dígitos.');
+  const o=nums[v],p=o&&parts[o.pid];
+  if(o&&!p)return toast('Aguarde carregar os participantes e tente de novo.');
+  if(s.resultado&&!confirm('Já existe um resultado. Substituir?'))return;
+  const g=p?{nome:p.nome,tel:p.tel,numero:v,status:p.status}:null;
+  await db.collection('sorteios').doc(curId).update({resultado:v,ganhador:g,status:'encerrado'});
+  app.innerHTML=hd('Resultado','painel')+(g?`<div class="card win"><h2>🏆 GANHADOR</h2><p class="big">${esc(g.nome)}</p><p>Número: <span class="chip">${v}</span></p><p>${esc(g.tel)}</p><p class="tag ${g.status}">${ST[g.status]}</p><a class="btn wa" target="_blank" href="https://wa.me/55${dg(g.tel)}">AVISAR NO WHATSAPP</a></div>`:`<div class="card win"><h2>Número ${v}</h2><p>Ninguém escolheu esse número.</p></div>`);
+}
+function hist(){
+  const l=list.filter(s=>s.resultado);
+  app.innerHTML=hd('📋 Histórico','home')+(l.length?l.map(s=>`<div class="card"><p class="big">${esc(s.nome)}</p><p class="m">${dt(s.data)} • ${cap(s.tipo)}</p><p>🎯 Resultado: <b>${esc(s.resultado)}</b></p><p>🏆 ${s.ganhador?esc(s.ganhador.nome)+' — nº '+esc(s.ganhador.numero):'Sem ganhador'}</p></div>`).join(''):'<p class="m">Nenhum sorteio realizado ainda.</p>');
+}
+function share(){
+  modal(`<h2>Link do sorteio</h2><input readonly value="${link()}" onclick="this.select()"><button class="btn" onclick="copy()">📲 COPIAR LINK</button><a class="btn wa" target="_blank" href="https://wa.me/?text=${encodeURIComponent('🎟️ '+S().nome+'\nEscolha seus números: '+link())}">COMPARTILHAR NO WHATSAPP</a><button class="btn alt" onclick="closeM()">FECHAR</button>`);
+}
+function copy(){const t=link();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Link copiado!')).catch(()=>{const i=$('.mod input');i.select();document.execCommand('copy');toast('Link copiado!')})}
+function clientView(){
+  const s=S();
+  if(!s){app.innerHTML=hd('Sorteio da Barbearia')+'<p class="m">Carregando sorteio…</p>';return}
+  const n=Object.keys(nums).length,cheio=n>=Number(s.qtd),aberto=s.status==='ativo'&&!cheio;
+  app.innerHTML=hd('Sorteio da Barbearia')+card(s)+(s.obs?`<p class="m">${esc(s.obs)}</p>`:'')+`<p class="big">${n} de ${s.qtd} participações preenchidas</p>`+
+  (cheio?'<div class="card win"><h3>SORTEIO COMPLETO</h3></div>':!aberto?'<div class="card win"><h3>Sorteio fechado</h3></div>':'<p class="m">Toque nos números que quiser e depois em confirmar.</p>')+
+  gridHTML()+(aberto?bar('CONTINUAR'):'')+'<p class="m" style="text-align:center;margin-top:24px"><a href="'+BASE+'">Área do administrador</a></p>';
+}
+boot();
+</script></body></html>

@@ -223,4 +223,47 @@ async function conf(){
   await db.collection('sorteios').doc(curId).update({resultado:v,ganhador:g,status:'encerrado',fat:stats().rec,vend:stats().vend});
   app.innerHTML=hd('Resultado','painel')+(g?`<div class="card win"><h2>🏆 GANHADOR</h2><p class="big">${esc(g.nome)}</p><p>Número: <span class="chip">${v}</span></p><p>${esc(g.tel)}</p><p class="tag ${g.status}">${ST[g.status]}</p><a class="btn wa" target="_blank" href="https://wa.me/55${dg(g.tel)}">AVISAR NO WHATSAPP</a></div>`:`<div class="card win"><h2>Número ${v}</h2><p>Ninguém escolheu esse número.</p></div>`);
 }
-function cp(t){(navigator.clipboard?navi
+function cp(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiado!')).catch(()=>{const i=document.createElement('input');i.value=t;document.body.append(i);i.select();document.execCommand('copy');i.remove();toast('Copiado!')})}
+function payView(){
+  const s=S();if(!s)return;const a=[...pay.arr].sort(),tot=a.length*Number(s.valor);
+  const msg='Olá! Segue o comprovante do sorteio "'+s.nome+'". Nome: '+pay.nome+'. Números: '+a.join(', ')+'. Valor: '+money(tot);
+  app.innerHTML=hd('Tudo certo! ✅')+`<div class="card win"><p>Participação registrada para <b>${esc(pay.nome)}</b></p><p>${a.map(x=>`<span class="chip">${x}</span>`).join('')}</p><p class="big">Total: ${money(tot)}</p><p class="tag pendente">🟡 Pagamento pendente</p></div>`+
+  (s.pix?`<div class="card"><h3>Pagar com Pix</h3><p class="m">Copie a chave, pague no app do seu banco e envie o comprovante.</p><input id="pk" readonly value="${esc(s.pix)}"><button class="btn" onclick="cp($('#pk').value)">📋 COPIAR CHAVE PIX</button>${s.wpp?`<a class="btn wa" target="_blank" href="https://wa.me/55${dg(s.wpp)}?text=${encodeURIComponent(msg)}">📲 ENVIAR COMPROVANTE</a>`:''}</div>`:'<div class="card"><p>Combine o pagamento com a barbearia.</p></div>')+
+  `<button class="btn alt" onclick="pay=null;render()">ESCOLHER MAIS NÚMEROS</button>`;
+}
+function stats(){const s=S(),v=Number(s.valor);let vend=0,pg=0,rec=0,rcv=0;Object.values(parts).forEach(p=>{if(p.status==='cancelado')return;const n=p.nums.length,t=n*Number(p.valor??v);vend+=n;if(p.status==='pago'){pg+=n;rec+=t}else rcv+=t});return{vend,pg,pe:vend-pg,rec,rcv,falta:Math.max(0,Number(s.qtd)-vend),prev:Number(s.qtd)*v,pv:Number(s.pv||0)}}
+function fin(){
+  const s=S(),x=stats();
+  app.innerHTML=hd('💰 Controle financeiro','painel')+card(s)+`<div class="card"><p class="big">${x.vend} vendidos • ${x.falta} faltam</p><p class="m">${x.pg} pagos • ${x.pe} pendentes</p></div><div class="card"><p>Total previsto: <b>${money(x.prev)}</b></p><p class="pago">Recebido: <b>${money(x.rec)}</b></p><p class="pendente">A receber: <b>${money(x.rcv)}</b></p><p>Prêmio: <b>${money(x.pv)}</b></p><p class="big">Sobra: ${money(x.rec-x.pv)}</p><p class="m">Valor do número: ${money(s.valor)}. Cancelados não entram na conta.</p></div>`;
+}
+async function wipe(s){const r=db.collection('sorteios').doc(s.id),refs=[...Object.keys(nums).map(n=>r.collection('numeros').doc(n)),...Object.keys(parts).map(p=>r.collection('participantes').doc(p))];for(let i=0;i<refs.length;i+=400){const b=db.batch();refs.slice(i,i+400).forEach(x=>b.delete(x));await b.commit()}}
+async function zerar(){
+  const s=S();if(!confirm('ZERAR "'+s.nome+'"?\n\nTodos os números e participantes serão apagados. O resultado, o ganhador e o faturamento ficam guardados no Histórico.'))return;
+  const x=stats(),F=firebase.firestore.FieldValue,u={resultado:F.delete(),ganhador:F.delete(),fat:F.delete(),vend:F.delete(),status:'ativo'};
+  if(x.vend||s.resultado)u.rodadas=F.arrayUnion({data:s.data||'',fim:Date.now(),resultado:s.resultado||null,ganhador:s.ganhador||null,vendidos:x.vend,faturado:x.rec,premio:x.pv});
+  try{await wipe(s);await db.collection('sorteios').doc(s.id).update(u);toast('Sorteio zerado!');nav('painel')}catch(e){toast('Erro ao zerar. Tente de novo.')}
+}
+async function apagar(){
+  const s=S();if(!confirm('APAGAR "'+s.nome+'" de vez?\n\nO sorteio, os participantes e o histórico dele somem e o link para de funcionar.'))return;
+  if(!confirm('Tem certeza? Isso não tem volta.'))return;
+  try{await wipe(s);await db.collection('sorteios').doc(s.id).delete();toast('Sorteio apagado.');curId=null;nav('home')}catch(e){toast('Erro ao apagar.')}
+}
+function hist(){
+  const l=[];list.forEach(s=>{(s.rodadas||[]).forEach(r=>l.push({...r,nome:s.nome,tipo:s.tipo,t:r.fim}));if(s.resultado)l.push({data:s.data,resultado:s.resultado,ganhador:s.ganhador,vendidos:s.vend,faturado:s.fat,nome:s.nome,tipo:s.tipo,t:Date.now(),atual:1})});
+  l.sort((a,b)=>b.t-a.t);
+  app.innerHTML=hd('📋 Histórico','home')+(l.length?l.map(r=>`<div class="card"><p class="big">${esc(r.nome)}</p><p class="m">${dt(r.data)} • ${cap(r.tipo)}${r.atual?' • sorteio atual':''}</p><p>🎯 Resultado: <b>${r.resultado?esc(r.resultado):'—'}</b></p><p>🏆 ${r.ganhador?esc(r.ganhador.nome)+' — nº '+esc(r.ganhador.numero):'Sem ganhador'}</p>${r.faturado!=null?`<p>💰 Faturado: <b>${money(r.faturado)}</b> • ${r.vendidos||0} vendidos</p>`:''}</div>`).join(''):'<p class="m">Nenhum sorteio realizado ainda.</p>');
+}
+function share(){
+  modal(`<h2>Link do sorteio</h2><input readonly value="${link()}" onclick="this.select()"><button class="btn" onclick="copy()">📲 COPIAR LINK</button><a class="btn wa" target="_blank" href="https://wa.me/?text=${encodeURIComponent('🎟️ '+S().nome+'\nEscolha seus números: '+link())}">COMPARTILHAR NO WHATSAPP</a><button class="btn alt" onclick="closeM()">FECHAR</button>`);
+}
+function copy(){const t=link();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Link copiado!')).catch(()=>{const i=$('.mod input');i.select();document.execCommand('copy');toast('Link copiado!')})}
+function clientView(){
+  const s=S();
+  if(!s){app.innerHTML=hd('Sorteio da Barbearia')+'<p class="m">Carregando sorteio…</p>';return}
+  const n=Object.keys(nums).length,cheio=n>=Number(s.qtd),aberto=s.status==='ativo'&&!cheio;
+  app.innerHTML=hd('Sorteio da Barbearia')+card(s)+(s.obs?`<p class="m">${esc(s.obs)}</p>`:'')+`<p class="big">${n} de ${s.qtd} participações preenchidas</p>`+
+  (cheio?'<div class="card win"><h3>SORTEIO COMPLETO</h3></div>':!aberto?'<div class="card win"><h3>Sorteio fechado</h3></div>':'<p class="m">Toque nos números que quiser e depois em confirmar.</p>')+
+  gridHTML()+(aberto?bar('CONTINUAR'):'')+'<p class="m" style="text-align:center;margin-top:24px"><a href="'+BASE+'">Área do administrador</a></p>';
+}
+boot();
+</script></body></html>ô preto você dá ela um tamanquinho tá vendendo a modelo também ajuda né velho

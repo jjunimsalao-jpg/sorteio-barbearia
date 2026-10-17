@@ -54,7 +54,7 @@ const T={dezena:[2,100],centena:[3,1000],milhar:[4,10000]};
 const $=s=>document.querySelector(s),app=$('#app');
 const SID=new URLSearchParams(location.search).get('s');
 const BASE=location.origin+location.pathname;
-let db,auth,user=null,list=[],curId=SID,nums={},parts={},view='home',sel=new Set(),page=0,q='',uN,uP,lid=null,pay=null;
+let db,auth,user=null,list=[],curId=SID,nums={},parts={},view='home',sel=new Set(),page=0,q='',uN,uP,lid=null,pay=null,nf=null;
 const S=()=>list.find(x=>x.id===curId);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad=(n,s)=>String(n).padStart(T[s.tipo][0],'0');
@@ -75,7 +75,9 @@ function full(s){return Object.keys(nums).length>=Number(s.qtd)}
 function boot(){
   if(FB.apiKey.startsWith('COLE')){app.innerHTML=hd('Sorteio da Barbearia')+'<div class="card"><h3>Falta ligar o Firebase</h3><p class="m">Abra o arquivo index.html, procure COLE AQUI A CONFIGURAÇÃO DO SEU FIREBASE e cole os dados do seu projeto.</p></div>';return}
   firebase.initializeApp(FB);db=firebase.firestore();auth=firebase.auth();
-  db.collection('sorteios').orderBy('criado','desc').onSnapshot(s=>{list=s.docs.map(d=>({id:d.id,...d.data()}));sync();render()},e=>toast('Erro ao carregar: '+e.code));
+  if(SID){
+    db.collection('sorteios').doc(SID).onSnapshot(d=>{if(d.exists){list=[{id:d.id,...d.data()}];nf=null}else{list=[];nf='nao'}sync();render()},e=>{nf='erro';list=[];render()});
+  }else db.collection('sorteios').orderBy('criado','desc').onSnapshot(s=>{list=s.docs.map(d=>({id:d.id,...d.data()}));sync();render()},e=>toast('Erro ao carregar: '+e.code));
   auth.onAuthStateChanged(u=>{user=u;sync(true);render()});
 }
 function sync(force){
@@ -259,11 +261,11 @@ function share(){
 function copy(){const t=link();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Link copiado!')).catch(()=>{const i=$('.mod input');i.select();document.execCommand('copy');toast('Link copiado!')})}
 function clientView(){
   const s=S();
-  if(!s){app.innerHTML=hd('Sorteio da Barbearia')+'<p class="m">Carregando sorteio…</p>';return}
+  if(!s){app.innerHTML=hd('Sorteio da Barbearia')+(nf==='nao'?'<div class="card"><h3>Sorteio não encontrado</h3><p class="m">Este link não está mais ativo. Peça o link novo para a barbearia.</p></div>':nf==='erro'?'<div class="card"><h3>Não foi possível abrir</h3><p class="m">Verifique a internet e atualize a página.</p></div>':'<p class="m">Carregando sorteio…</p>');return}
   const n=Object.keys(nums).length,cheio=n>=Number(s.qtd),aberto=s.status==='ativo'&&!cheio;
   app.innerHTML=hd('Sorteio da Barbearia')+card(s)+(s.obs?`<p class="m">${esc(s.obs)}</p>`:'')+`<p class="big">${n} de ${s.qtd} participações preenchidas</p>`+
   (cheio?'<div class="card win"><h3>SORTEIO COMPLETO</h3></div>':!aberto?'<div class="card win"><h3>Sorteio fechado</h3></div>':'<p class="m">Toque nos números que quiser e depois em confirmar.</p>')+
   gridHTML()+(aberto?bar('CONTINUAR'):'')+'<p class="m" style="text-align:center;margin-top:24px"><a href="'+BASE+'">Área do administrador</a></p>';
 }
 boot();
-</script></body></html>ô preto você dá ela um tamanquinho tá vendendo a modelo também ajuda né velho
+</script></body></html>

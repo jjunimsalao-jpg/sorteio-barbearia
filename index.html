@@ -47,12 +47,14 @@ a{color:var(--g)}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
+// ====== COLE AQUI A CONFIGURAÇÃO DO SEU FIREBASE ======
 const FB={apiKey:"AIzaSyAmZxyTKA9-eNtkiwqWEr8sBIsDAbzFMkc",authDomain:"sorteio-barbearia.firebaseapp.com",projectId:"sorteio-barbearia",appId:"1:92874511816:web:09a529cc0a200c92089cfd"};
+// =======================================================
 const T={dezena:[2,100],centena:[3,1000],milhar:[4,10000]};
 const $=s=>document.querySelector(s),app=$('#app');
 const SID=new URLSearchParams(location.search).get('s');
 const BASE=location.origin+location.pathname;
-let db,auth,user=null,list=[],curId=SID,nums={},parts={},view='home',sel=new Set(),page=0,q='',uN,uP,lid=null;
+let db,auth,user=null,list=[],curId=SID,nums={},parts={},view='home',sel=new Set(),page=0,q='',uN,uP,lid=null,pay=null;
 const S=()=>list.find(x=>x.id===curId);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad=(n,s)=>String(n).padStart(T[s.tipo][0],'0');
@@ -69,7 +71,9 @@ function hd(t,back){return `<div class="top">${back?`<button class="btn alt sm" 
 function link(){return BASE+'?s='+curId}
 function full(s){return Object.keys(nums).length>=Number(s.qtd)}
 
+// ---------- Firebase ----------
 function boot(){
+  if(FB.apiKey.startsWith('COLE')){app.innerHTML=hd('Sorteio da Barbearia')+'<div class="card"><h3>Falta ligar o Firebase</h3><p class="m">Abra o arquivo index.html, procure COLE AQUI A CONFIGURAÇÃO DO SEU FIREBASE e cole os dados do seu projeto.</p></div>';return}
   firebase.initializeApp(FB);db=firebase.firestore();auth=firebase.auth();
   db.collection('sorteios').orderBy('criado','desc').onSnapshot(s=>{list=s.docs.map(d=>({id:d.id,...d.data()}));sync();render()},e=>toast('Erro ao carregar: '+e.code));
   auth.onAuthStateChanged(u=>{user=u;sync(true);render()});
@@ -89,13 +93,14 @@ async function reg(nome,tel,arr){
   try{await db.runTransaction(async tx=>{
     const sn=await Promise.all(arr.map(n=>tx.get(r.collection('numeros').doc(n))));
     if(sn.some(x=>x.exists))throw'ocupado';
-    tx.set(r.collection('participantes').doc(pid),{nome,tel,nums:arr,status:'pendente',ts:Date.now()});
+    tx.set(r.collection('participantes').doc(pid),{nome,tel,nums:arr,status:'pendente',valor:Number(s.valor),ts:Date.now()});
     arr.forEach(n=>tx.set(r.collection('numeros').doc(n),{pid}));
-  });return true}catch(e){
+  });return pid}catch(e){
     sel=new Set([...sel].filter(n=>!nums[n]));render();
     toast(e==='ocupado'?'Esse número acabou de ser escolhido. Escolha outro número.':'Não foi possível salvar. Tente de novo.');return false}
 }
 
+// ---------- Grade de números ----------
 function gridHTML(){
   const s=S(),tot=T[s.tipo][1],pg=Math.ceil(tot/100);let h='';
   if(pg>1){h+='<div class="pg">';for(let i=0;i<pg;i++)h+=`<button class="btn sm ${i===page?'':'alt'}" onclick="page=${i};render()">${pad(i*100,s)}–${pad(i*100+99,s)}</button>`;h+='</div><div class="row" style="margin-bottom:10px"><input id="go" inputmode="numeric" placeholder="Ir para o número"><button class="btn sm" onclick="goN()">Ir</button></div>'}
@@ -128,19 +133,21 @@ async function save(){
   if(!nome)return toast('Digite seu nome ou apelido.');
   if(dg(tel).length<10)return toast('Digite um telefone com DDD.');
   $('#ok').disabled=true;const arr=[...sel].sort();
-  if(await reg(nome,tel,arr)){closeM();sel=new Set();
-    if(SID)app.innerHTML=hd('Tudo certo! ✅')+`<div class="card win"><p>Participação registrada para <b>${esc(nome)}</b>:</p><p>${arr.map(x=>`<span class="chip">${x}</span>`).join('')}</p><p class="m">Combine o pagamento com a barbearia.</p><button class="btn" onclick="render()">ESCOLHER MAIS NÚMEROS</button></div>`;
+  const pid=await reg(nome,tel,arr);
+  if(pid){closeM();sel=new Set();
+    if(SID){pay={nome,arr};render()}
     else{toast('Cadastrado!');render()}
   }else{const b=$('#ok');if(b)b.disabled=false}
 }
 
+// ---------- Telas ----------
 function render(){
   if(!db)return;
-  if(SID)return clientView();
+  if(SID)return pay?payView():clientView();
   if(!user)return loginView();
   const s=S();
   if(view!=='home'&&view!=='novo'&&view!=='hist'&&!s)view='home';
-  ({home,novo,painel,cfg,nums_:numsView,cad,parts_:partsView,sortear,hist}[view==='nums'?'nums_':view==='parts'?'parts_':view]||home)();
+  ({home,novo,painel,cfg,fin,nums_:numsView,cad,parts_:partsView,sortear,hist}[view==='nums'?'nums_':view==='parts'?'parts_':view]||home)();
 }
 const ADM='admin@sorteio.app',SUF='Barbearia';
 function loginView(){
@@ -156,8 +163,8 @@ function home(){
 function painel(){
   const s=S(),n=Object.keys(nums).length;
   app.innerHTML=hd('Painel','home')+card(s)+`<div class="card"><p class="big">${n} de ${s.qtd} participações preenchidas</p>${n>=Number(s.qtd)?'<p class="tag pago">SORTEIO COMPLETO</p>':''}${s.resultado?`<p>🎯 Resultado: <b>${esc(s.resultado)}</b> — ${s.ganhador?esc(s.ganhador.nome):'sem ganhador'}</p>`:''}</div>
-  <button class="btn" onclick="nav('cad')">🟢 CADASTRAR CLIENTE</button><button class="btn" onclick="nav('nums')">🔢 VER NÚMEROS</button><button class="btn" onclick="nav('parts')">📋 VER PARTICIPANTES</button><button class="btn" onclick="nav('sortear')">🎯 REALIZAR SORTEIO</button>
-  <button class="btn" onclick="share()">📲 COMPARTILHAR LINK</button><button class="btn alt" onclick="nav('cfg')">⚙️ CONFIGURAR SORTEIO</button>`;
+  <button class="btn" onclick="nav('cad')">🟢 CADASTRAR CLIENTE</button><button class="btn" onclick="nav('nums')">🔢 VER NÚMEROS</button><button class="btn" onclick="nav('parts')">📋 VER PARTICIPANTES</button><button class="btn" onclick="nav('sortear')">🎯 REALIZAR SORTEIO</button><button class="btn" onclick="nav('fin')">💰 CONTROLE FINANCEIRO</button>
+  <button class="btn" onclick="share()">📲 COMPARTILHAR LINK</button><button class="btn alt" onclick="nav('cfg')">⚙️ CONFIGURAR SORTEIO</button><button class="btn alt" onclick="zerar()">🔄 ZERAR SORTEIO</button><button class="btn red" onclick="apagar()">🗑️ APAGAR SORTEIO</button>`;
 }
 function form(s,cfgMode){
   s=s||{tipo:'dezena',qtd:100,status:'ativo'};
@@ -169,6 +176,9 @@ function form(s,cfgMode){
   <label>Quantidade de números disponíveis</label><input id="f_qtd" type="number" inputmode="numeric" value="${s.qtd}"><p class="m" id="f_max"></p>
   <label>Valor por número (R$)</label><input id="f_valor" type="number" inputmode="decimal" step="0.01" value="${s.valor??''}">
   <label>Nome do prêmio</label><input id="f_premio" value="${esc(s.premio)}"><label>Descrição / observações</label><textarea id="f_obs" rows="3">${esc(s.obs)}</textarea>
+  <label>Valor do prêmio (R$)</label><input id="f_pv" type="number" inputmode="decimal" step="0.01" value="${s.pv??''}">
+  <label>Chave Pix</label><input id="f_pix" value="${esc(s.pix)}">
+  <label>Seu WhatsApp (com DDD)</label><input id="f_wpp" type="tel" inputmode="tel" value="${esc(s.wpp)}">
   ${cfgMode?`<label>Status do sorteio</label><select id="f_status"><option value="ativo">🟢 Ativo (recebendo números)</option><option value="pausado">⏸️ Pausado</option><option value="encerrado">🏁 Encerrado</option></select>`:''}
   <button class="btn" onclick="saveS(${cfgMode})">${cfgMode?'SALVAR ALTERAÇÕES':'CRIAR SORTEIO'}</button><button class="btn alt" onclick="nav('${cfgMode?'painel':'home'}')">CANCELAR</button></div>`;
   $('#f_tipo').value=s.tipo;if(cfgMode)$('#f_status').value=s.status;tipoCh(true);
@@ -176,7 +186,7 @@ function form(s,cfgMode){
 function tipoCh(keep){const t=$('#f_tipo').value,m=T[t][1];$('#f_max').textContent='Máximo para '+t+': '+m;if(!keep||Number($('#f_qtd').value)>m)$('#f_qtd').value=m}
 const novo=()=>form(null,false),cfg=()=>form(S(),true);
 async function saveS(c){
-  const d={nome:$('#f_nome').value.trim(),data:$('#f_data').value,tipo:$('#f_tipo').value,qtd:Number($('#f_qtd').value),valor:Number($('#f_valor').value),premio:$('#f_premio').value.trim(),obs:$('#f_obs').value.trim()};
+  const d={nome:$('#f_nome').value.trim(),data:$('#f_data').value,tipo:$('#f_tipo').value,qtd:Number($('#f_qtd').value),valor:Number($('#f_valor').value),premio:$('#f_premio').value.trim(),obs:$('#f_obs').value.trim(),pv:Number($('#f_pv').value)||0,pix:$('#f_pix').value.trim(),wpp:dg($('#f_wpp').value)};
   if(!d.nome||!d.data||!d.premio)return toast('Preencha nome, data e prêmio.');
   if(!(d.qtd>=1)||d.qtd>T[d.tipo][1])return toast('Quantidade inválida para '+d.tipo+'.');
   if(c){d.status=$('#f_status').value;await db.collection('sorteios').doc(curId).update(d);toast('Alterações salvas.');nav('painel')}
@@ -191,7 +201,7 @@ function fill(){
   const s=q.trim().toLowerCase(),d=dg(s);
   const l=Object.entries(parts).map(([id,p])=>({id,...p})).filter(p=>!s||(p.nome+' '+p.tel+' '+p.nums.join(' ')).toLowerCase().includes(s)||(d&&dg(p.tel).includes(d))).sort((a,b)=>a.ts-b.ts);
   $('#pl').innerHTML=l.length?l.map(p=>`<div class="card"><p class="big">${esc(p.nome)}</p><p><a href="https://wa.me/55${dg(p.tel)}" target="_blank">${esc(p.tel)}</a></p><p>${p.nums.map(x=>`<span class="chip">${x}</span>`).join('')}</p>
-  <p>${money(p.nums.length*Number(S().valor))}</p><select onchange="setSt('${p.id}',this.value)">${Object.keys(ST).map(k=>`<option value="${k}" ${k===p.status?'selected':''}>${ST[k]}</option>`).join('')}</select>
+  <p>${money(p.nums.length*Number(p.valor??S().valor))}</p><select onchange="setSt('${p.id}',this.value)">${Object.keys(ST).map(k=>`<option value="${k}" ${k===p.status?'selected':''}>${ST[k]}</option>`).join('')}</select>
   <button class="btn sm red" style="margin-top:8px" onclick="del('${p.id}')">Excluir e liberar números</button></div>`).join(''):'<p class="m">Nenhum participante encontrado.</p>';
 }
 async function del(pid){
@@ -210,24 +220,7 @@ async function conf(){
   if(o&&!p)return toast('Aguarde carregar os participantes e tente de novo.');
   if(s.resultado&&!confirm('Já existe um resultado. Substituir?'))return;
   const g=p?{nome:p.nome,tel:p.tel,numero:v,status:p.status}:null;
-  await db.collection('sorteios').doc(curId).update({resultado:v,ganhador:g,status:'encerrado'});
+  await db.collection('sorteios').doc(curId).update({resultado:v,ganhador:g,status:'encerrado',fat:stats().rec,vend:stats().vend});
   app.innerHTML=hd('Resultado','painel')+(g?`<div class="card win"><h2>🏆 GANHADOR</h2><p class="big">${esc(g.nome)}</p><p>Número: <span class="chip">${v}</span></p><p>${esc(g.tel)}</p><p class="tag ${g.status}">${ST[g.status]}</p><a class="btn wa" target="_blank" href="https://wa.me/55${dg(g.tel)}">AVISAR NO WHATSAPP</a></div>`:`<div class="card win"><h2>Número ${v}</h2><p>Ninguém escolheu esse número.</p></div>`);
 }
-function hist(){
-  const l=list.filter(s=>s.resultado);
-  app.innerHTML=hd('📋 Histórico','home')+(l.length?l.map(s=>`<div class="card"><p class="big">${esc(s.nome)}</p><p class="m">${dt(s.data)} • ${cap(s.tipo)}</p><p>🎯 Resultado: <b>${esc(s.resultado)}</b></p><p>🏆 ${s.ganhador?esc(s.ganhador.nome)+' — nº '+esc(s.ganhador.numero):'Sem ganhador'}</p></div>`).join(''):'<p class="m">Nenhum sorteio realizado ainda.</p>');
-}
-function share(){
-  modal(`<h2>Link do sorteio</h2><input readonly value="${link()}" onclick="this.select()"><button class="btn" onclick="copy()">📲 COPIAR LINK</button><a class="btn wa" target="_blank" href="https://wa.me/?text=${encodeURIComponent('🎟️ '+S().nome+'\nEscolha seus números: '+link())}">COMPARTILHAR NO WHATSAPP</a><button class="btn alt" onclick="closeM()">FECHAR</button>`);
-}
-function copy(){const t=link();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Link copiado!')).catch(()=>{const i=$('.mod input');i.select();document.execCommand('copy');toast('Link copiado!')})}
-function clientView(){
-  const s=S();
-  if(!s){app.innerHTML=hd('Sorteio da Barbearia')+'<p class="m">Carregando sorteio…</p>';return}
-  const n=Object.keys(nums).length,cheio=n>=Number(s.qtd),aberto=s.status==='ativo'&&!cheio;
-  app.innerHTML=hd('Sorteio da Barbearia')+card(s)+(s.obs?`<p class="m">${esc(s.obs)}</p>`:'')+`<p class="big">${n} de ${s.qtd} participações preenchidas</p>`+
-  (cheio?'<div class="card win"><h3>SORTEIO COMPLETO</h3></div>':!aberto?'<div class="card win"><h3>Sorteio fechado</h3></div>':'<p class="m">Toque nos números que quiser e depois em confirmar.</p>')+
-  gridHTML()+(aberto?bar('CONTINUAR'):'')+'<p class="m" style="text-align:center;margin-top:24px"><a href="'+BASE+'">Área do administrador</a></p>';
-}
-boot();
-</script></body></html>
+function cp(t){(navigator.clipboard?navi
